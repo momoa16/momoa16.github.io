@@ -1,0 +1,143 @@
+---
+title: "How well a barbell lift is achieved"
+author: "Mohamed Aounallah"
+date: "3/29/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+This work deals with a prediction of how well a barbell lift exercise is achieved. We use data that come from <http://groupware.les.inf.puc-rio.br/har>.
+
+## Data exploratory and cleansing
+We start first by exploring the quality of data in hand to assess the required preprocessing.
+
+First of all, if we edit the *.csv* files with a simple text editor, we will notice that it contains many blank values as well as *#DIV/0!* values. Consequently, we need to deal with these values during the load by replacing them by *N/A*. Also, we need to change the date/time attribute to the correct type (i.e. *cvtd_timestamp* field).
+
+```{r loadData, cache=TRUE, message=FALSE}
+training_all <- read.csv("pml-training.csv", na.strings = c("", "#DIV/0!", "NA") )
+testing_final  <- read.csv("pml-testing.csv", na.strings = c("", "#DIV/0!", "NA") )
+
+training_all$cvtd_timestamp <- as.POSIXct(training_all$cvtd_timestamp, format = "%d/%m/%Y %H:%M")
+testing_final$cvtd_timestamp <- as.POSIXct(testing_final$cvtd_timestamp, format = "%d/%m/%Y %H:%M")
+
+dim(training_all); dim(testing_final)
+
+# str(training_all) # --- There are 160 attributes, so str command will occupy several pages
+
+# head(training_all) # --- There are 160 attributes, so head command will occupy several pages
+```
+
+A quick look to a sample of the training set shows that many attributes contains a high number of *NA* values. Lets check their number:
+
+```{r}
+for (r in names(training_all)) 
+    print(paste(r , ": " ,sum(is.na(training_all[, r]))))
+```
+
+There are many attributes that have more than 19000 rows with *NA* values while the total number of row in the training set is `r nrow(training_all)`. These attributes are useless to use in addition to the others as they are considered vehiculating poor information. Consequently, we will remove them from the data sets, which will also speed up model building. The remaining attributes contain no missing values, so no further preprocessing in this direction will be done.
+
+```{r}
+inAttributes <- vector(length = ncol(training_all))
+for (idx in 1:ncol(training_all))
+    inAttributes[idx] <- sum(is.na(training_all[, idx])) < 19000
+
+# str(training_all[, inAttributes])
+
+training_all <- training_all[, inAttributes]
+testing_final  <- testing_final[, inAttributes]
+
+dim(training_all); dim(testing_final)
+```
+
+### Splitting data
+As the data set contains a relatively big number of observations I will opt to split the data into training and testing rather than applying a cross validation. Moreover, since the number of attributes is also high, I expect that cross validation will be time consuming which consolidates my choice of splitting data.
+
+The data set represents the activity of six different people, we will take 70% of the data corresponding to each one as a training set and the remaining as a validation set to test the performance of our models before applying them to the non labeled test set (the 20 observations).
+
+```{r train_test, dependson="loadData"}
+library(caret)
+
+set.seed(12345)
+training <- data.frame()
+testing <- data.frame()
+
+for (usr in levels(training_all$user_name)) {
+    temp <- training_all[training_all$user_name == usr , ]
+    inTrain <- createDataPartition(y=temp$classe,
+                                   p = 0.7, list = FALSE)
+    training <- rbind(training, temp[inTrain, ] )
+    testing <- rbind(testing, temp[-inTrain, ])
+}
+rm(temp); rm(inTrain)
+```
+
+### Reducing dimensions
+As the number of features is relatively high, we could think about reducing the dimensionality of the data set by preprocessing the data using *principal component analysis*.
+
+```{r  pca10, cache=TRUE, message=FALSE}
+set.seed(12345)
+library(e1071)
+pcaPreProc <- preProcess(training[,2:59], method="pca", pcaComp=10) # feature #1 is the row number so it's discarded
+trainPC <- predict(pcaPreProc, training[,2:59])
+
+system.time( svmPCA10_fit <- svm(classe ~ . , data = cbind(trainPC, classe=training$classe) ))
+
+mean(predict(svmPCA10_fit, trainPC) == training$classe) # -- in-sample accuracy
+
+mean(predict(svmPCA10_fit, predict(pcaPreProc, testing)) == testing$classe) # -- out-of-sample accuracy
+```
+
+Since the time required to build an SVM on 10 features (plus 3 categorical features) is acceptable (less than a minute) and there's still a room to enhance the accuracy, we can try to build an SVM on 20 features.
+
+```{r  pca20, cache=TRUE}
+set.seed(12345)
+pcaPreProc <- preProcess(training[,2:59], method="pca", pcaComp=20) # feature #1 is the row number so it's discarded
+trainPC <- predict(pcaPreProc, training[,2:59])
+
+system.time( svmPCA20_fit <- svm(classe ~ . , data = cbind(trainPC, classe=training$classe) ))
+
+mean(predict(svmPCA20_fit, trainPC) == training$classe) # -- in-sample accuracy
+
+mean(predict(svmPCA20_fit, predict(pcaPreProc, testing)) == testing$classe) # -- out-of-sample accuracy
+```
+
+## Fitting Predictive Models
+As the number of features is relatively important as well as the size of the training set, we will expect that the training phase will be time consuming. This will be especially the case with boosting like algorithms. As an example, we will build a random forest with only 5 trees and keep track of time spent.
+
+```{r randomForest, cahe=TRUE, message=FALSE}
+system.time( rf.Fit <- train(classe~ .,data=training[,2:60],method="rf", ntree = 5))
+```
+
+We can see that the time spent is almost 2 minutes for 5 trees. We can imagine that with hundreds of trees the time will be of hours. Consequently, all these techniques will be discarded in our analysis. Also, since the class is not binary (class "A", "B", to "E") classifiers dealing with only binary classes like "glm" will not be tested.
+
+We have build in the previous section an SVM on 20 features created by a PCA preprocessing and we got an in-sample and out-of-sample accuracy around 90%. Let's now build an SVM on all features and assess the time spent as well as the new accuracy.
+
+```{r , dependson="pca10"}
+library(e1071)
+set.seed(12345)
+system.time( svmFit <- svm(classe ~ ., data = training[,2:60]) )
+mean(predict(svmFit, training) == training$classe)
+mean(predict(svmFit, testing) == testing$classe)
+```
+
+We can see that the time required for the svm is almost 1.15 minute (on my machine) while there is around 3% increase in both in-sample and out-of-sample accuracy. I will accept this delay to obtain finally an accuracy of 95.3% and 94.9% respectively of the in-sample and out-of-sample.
+
+### Another way to build a classifier
+Another way to build a predictor is to build a classifier for each value of the "*classe*" variable. In other words, I could create dummy variables from the dependent variable and then create a binary classifier for each one. The problem that could arise here is how to decide of the predicted class if more than one binary model predicts conflicting classes (i.e. As an example, the observation is predicted to belong to class "A" and "B" at the same time) or none of the models predict that the observation belongs to its class.
+
+## Conclusion
+The data set used in this analysis has the following characteristics, which highly restrains the algorithms that could be used:
+
+* An important number of features 
+
+* A high number of examples
+
+* A multi categorical class
+
+These constrains, eliminate the idea to use many models as well as the way to assess them as cross validation for instance will be time consuming.
+
+In our work, we tried first to reduce the dimensionality of the data set and then to build a *support vector machine* on the whole data while assessing the trade-off time/accuracy. We finally choose to build an SVM built on the whole data since it is still acceptable in terms of required time with an increase of accuracy.
