@@ -320,7 +320,8 @@ dim(training_all); dim(testing_final)</code></pre>
 <pre><code>## [1] 20 60</code></pre>
 <div id="splitting-data" class="section level3">
 <h3>Splitting data</h3>
-<p>As the data set represents the activity of six different people, we will take 70% of the data corresponding to each one as a training set and the remaining as a validation set to test the performance of our models before applying them to the non labeled test set (the 20 observations).</p>
+<p>As the data set contains a relatively big number of observations I will opt to split the data into training and testing rather than applying a cross validation. Moreover, since the number of attributes is also high, I expect that cross validation will be time consuming which consolidates my choice of splitting data.</p>
+<p>The data set represents the activity of six different people, we will take 70% of the data corresponding to each one as a training set and the remaining as a validation set to test the performance of our models before applying them to the non labeled test set (the 20 observations).</p>
 <pre class="r"><code>library(caret)</code></pre>
 <pre><code>## Loading required package: lattice</code></pre>
 <pre><code>## Loading required package: ggplot2</code></pre>
@@ -371,19 +372,23 @@ system.time( svmPCA20_fit &lt;- svm(classe ~ . , data = cbind(trainPC, classe=tr
 <p>As the number of features is relatively important as well as the size of the training set, we will expect that the training phase will be time consuming. This will be especially the case with boosting like algorithms. As an example, we will build a random forest with only 5 trees and keep track of time spent.</p>
 <pre class="r"><code>system.time( rf.Fit &lt;- train(classe~ .,data=training[,2:60],method=&quot;rf&quot;, ntree = 5))</code></pre>
 <pre><code>##    user  system elapsed 
-## 110.790   4.007 119.210</code></pre>
+## 112.019   4.136 125.078</code></pre>
 <p>We can see that the time spent is almost 2 minutes for 5 trees. We can imagine that with hundreds of trees the time will be of hours. Consequently, all these techniques will be discarded in our analysis. Also, since the class is not binary (class “A”, “B”, to “E”) classifiers dealing with only binary classes like “glm” will not be tested.</p>
 <p>We have build in the previous section an SVM on 20 features created by a PCA preprocessing and we got an in-sample and out-of-sample accuracy around 90%. Let’s now build an SVM on all features and assess the time spent as well as the new accuracy.</p>
 <pre class="r"><code>library(e1071)
 set.seed(12345)
 system.time( svmFit &lt;- svm(classe ~ ., data = training[,2:60]) )</code></pre>
 <pre><code>##    user  system elapsed 
-##  69.246   0.568  72.120</code></pre>
+##  74.036   1.177 131.448</code></pre>
 <pre class="r"><code>mean(predict(svmFit, training) == training$classe)</code></pre>
 <pre><code>## [1] 0.9533125</code></pre>
 <pre class="r"><code>mean(predict(svmFit, testing) == testing$classe)</code></pre>
 <pre><code>## [1] 0.9485607</code></pre>
 <p>We can see that the time required for the svm is almost 1.15 minute (on my machine) while there is around 3% increase in both in-sample and out-of-sample accuracy. I will accept this delay to obtain finally an accuracy of 95.3% and 94.9% respectively of the in-sample and out-of-sample.</p>
+<div id="another-way-to-build-a-classifier" class="section level3">
+<h3>Another way to build a classifier</h3>
+<p>Another way to build a predictor is to build a classifier for each value of the “<em>classe</em>” variable. In other words, I could create dummy variables from the dependent variable and then create a binary classifier for each one. The problem that could arise here is how to decide of the predicted class if more than one binary model predicts conflicting classes (i.e. As an example, the observation is predicted to belong to class “A” and “B” at the same time) or none of the models predict that the observation belongs to its class.</p>
+</div>
 </div>
 <div id="conclusion" class="section level2">
 <h2>Conclusion</h2>
@@ -393,6 +398,7 @@ system.time( svmFit &lt;- svm(classe ~ ., data = training[,2:60]) )</code></pre>
 <li><p>A high number of examples</p></li>
 <li><p>A multi categorical class</p></li>
 </ul>
+<p>These constrains, eliminate the idea to use many models as well as the way to assess them as cross validation for instance will be time consuming.</p>
 <p>In our work, we tried first to reduce the dimensionality of the data set and then to build a <em>support vector machine</em> on the whole data while assessing the trade-off time/accuracy. We finally choose to build an SVM built on the whole data since it is still acceptable in terms of required time with an increase of accuracy.</p>
 </div>
 </div>
